@@ -1,8 +1,6 @@
 # Hybrid Cloud Network with VPC Peering & Bastion Host
 
-This project demonstrates a **secure, multi-network architecture** on AWS. It features **two custom VPCs** connected via **VPC Peering**, each with public and private subnets. A **MySQL server** is deployed in a private subnet, and access is managed through a **bastion host** located in the public subnet of the peered VPC, simulating a hybrid or multi-team infrastructure scenario.
-
-## 📋 Table of Contents
+## Table of Contents
 - [Project Overview](#project-overview)
 - [Architecture Diagram](#architecture-diagram)
 - [Technical Stack](#technical-stack)
@@ -32,15 +30,15 @@ To simulate a professional environment, I utilized **non-overlapping CIDR blocks
 - **Management VPC (10.0.0.0/16):** Houses the **public-facing Bastion Host**.
 - **Database VPC (192.168.0.0/16):** A **restricted zone** for data assets.
 **VPC 1**  
-  ![VPC 1](media/image1.png)
+  ![VPC 1](https://github.com/KmNandini12/VPC-peering-Bastion-to-SQL-access/blob/53b486e0206222810c6dcf0ee69dcf360c2d7d3a/VPC1.png)
 **VPC 2**  
-  ![VPC 2](media/image3.png)
+  ![VPC 2](https://github.com/KmNandini12/VPC-peering-Bastion-to-SQL-access/blob/53b486e0206222810c6dcf0ee69dcf360c2d7d3a/VPC2.png)
 
 
 **The Connectivity Core:**
 
 - **VPC Peering:** Established a **bidirectional peering connection** (`pcx-xxxx`) which allows traffic to route over the **AWS private backbone**.
-![Peering Connection](media/image.png)
+![Peering Connection](https://github.com/KmNandini12/VPC-peering-Bastion-to-SQL-access/blob/53b486e0206222810c6dcf0ee69dcf360c2d7d3a/VPC%20Peering.png)
 - **Route Table Logic:** Implemented **specific routes** in both VPCs. The Database VPC's **Private Route Table** directs traffic intended for `10.0.0.0/16` through the **Peering ID**, ensuring the DB can "talk back" to the Bastion.
 - **Egress Control:** Deployed a **NAT Gateway** in the public subnet of the Database VPC to allow the MySQL server to **pull security patches** without exposing port 3306 to the web.
 
@@ -81,6 +79,8 @@ The database VPC uses a **NAT Gateway** for outbound traffic. This allows the My
 | 1 | Automated Patching | `sudo apt update && sudo apt install mysql-server -y` (via NAT Gateway) |
 | 2 | Bind-Address Hardening | Modified `/etc/mysql/mysql.conf.d/mysqld.cnf` to `bind-address = 192.168.0.0` |
 | 3 | Least-Privilege User | `CREATE USER 'admin'@'bastion-private-ip' IDENTIFIED BY 'password';` |
+
+![Bind Address](https://github.com/KmNandini12/VPC-peering-Bastion-to-SQL-access/blob/53b486e0206222810c6dcf0ee69dcf360c2d7d3a/Bind%20Address.png)
 
 ### Why Bind to `192.168.0.0`?
 
