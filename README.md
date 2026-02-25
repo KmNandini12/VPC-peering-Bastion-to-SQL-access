@@ -14,126 +14,97 @@ This project demonstrates a secure, multi-network architecture on AWS. It featur
 - [Future Enhancements](#future-enhancements)
 
 ## Project Overview
-The goal was to build a controlled network environment where a private MySQL instance is accessible from a public instance in a **different VPC**, without direct internet exposure. I designed two isolated VPCs, established a VPC peering connection, configured route tables and NAT gateways, and used a bastion host to securely reach the database. This setup mimics real-world requirements for separating environments (e.g., dev/test vs. production) or connecting services across teams while maintaining strict security.
+This project implements a zero-exposure database architecture following enterprise security best practices. By establishing a private bridge through VPC Peering, the MySQL database is isolated within a restricted production environment, accessible exclusively via a hardened Bastion Host in a separate Management VPC. This design eliminates public internet attack surfaces while preserving secure administrative access—a direct implementation of the AWS Well-Architected Framework's principle of "defense in depth."
 
 ## Architecture Diagram
 The following screenshots document the step-by-step build, from VPC creation to successful MySQL connection.
 
-### VPC Creation
-Two custom VPCs were created to host the public and private resources separately.
-- **VPC 1**  
+## Technical Stack
+**Cloud Provider:** AWS (VPC, EC2, IGW, NAT Gateway)
+
+**Networking:** VPC Peering, Custom Route Tables, Security Group Referencing
+
+**Database:** MySQL Community Server (Version 8.0+)
+
+**Security:** SSH Key-Pair Authentication, Least-Privilege IAM/Security Groups
+
+**OS:** Ubuntu 24.04 LTS / Amazon Linux 2023
+
+## Network Infrastructure & VPC Peering
+To simulate a professional environment, I utilized non-overlapping CIDR blocks to prevent routing conflicts:
+
+Management VPC (10.0.0.0/16): Houses the public-facing Bastion Host.
+
+Database VPC (192.168.0.0/16): A restricted zone for data assets.
+
+**VPC 1**  
   ![VPC 1](media/image1.png)
 - **VPC 2**  
   ![VPC 2](media/image3.png)
 
-### Subnet Design
-Each VPC contains both public and private subnets for layered access.
-- **Public Subnet**  
-  ![Public Subnet](media/image4.png)
-- **Private-Public Subnet (within Private VPC)**  
-  ![Private-Public Subnet](media/image5.png)
-- **Private Subnet**  
-  ![Private Subnet](media/image6.png)
+The Connectivity Core:
 
-### Internet Gateways & NAT
-Internet access is managed per VPC.
-- **Internet Gateway (IGW) for Public VPC**  
-  ![IGW](media/image7.png)
-- **Private VPC IGW (for NAT/outbound)**  
-  ![Private IGW](media/image8.png)
+1. VPC Peering: Established a bidirectional peering connection (pcx-xxxx) which allows traffic to route over the AWS private backbone.
+  ![Peering Connection](media/image.png)
+2. Route Table Logic: Implemented specific routes in both VPCs. The Database VPC’s Private Route Table directs traffic intended for 10.0.0.0/16 through the Peering ID, ensuring the DB can "talk back" to the Bastion.
+3. Egress Control: Deployed a NAT Gateway in the public subnet of the Database VPC to allow the MySQL server to pull security patches without exposing port 3306 to the web.
 
-### Route Tables
-Custom route tables control traffic flow, including peering connections.
-- **Private VPC Public RT**  
-  ![Private VPC Public RT](media/image9.png)  
-  ![Routes](media/image10.png)
-- **Private VPC Private RT**  
-  ![Private VPC Private RT](media/image12.png)  
-  ![Routes](media/image13.png)
-- **Public VPC Public RT**  
-  ![Public VPC Public RT](media/image14.png)  
-  ![Routes](media/image15.png)  
-  ![Additional routes](media/image16.png)
-
-### NAT Gateway
-Allows private instances to initiate outbound traffic without being publicly accessible.
-- **NAT Gateway Setup**  
-  ![NAT Gateway](media/image17.png)  
-  ![NAT Details](media/image18.png)  
-  ![NAT Association](media/image19.png)
-
-### VPC Peering
-The core connection linking the two VPCs.
-- **Peering Connection Established**  
-  ![Peering](media/image20.png)  
-  ![Peering Details](media/image21.png)
-
-### Route Edits for Peering
-Traffic is directed across the peering link via route table updates.
-- **Private VPC Public RT - Peering Route**  
-  ![Private VPC Public RT Peering](media/image22.png)
-- **Public VPC Public RT - Peering Route**  
-  ![Public VPC Public RT Peering](media/image23.png)
-- **Private VPC Private RT - Peering Route**  
-  ![Private VPC Private RT Peering](media/image24.png)
-
-### Security Groups
-Fine-grained access control.
-- **Public SG (for Bastion)**  
-  ![Public SG](media/image25.png)
-- **Private SG (for MySQL)**  
-  ![Private SG](media/image26.png)
-
-### EC2 Instances
-- **Bastion Host (Public VPC)**  
-  ![Bastion Host](media/image27.png)  
-  ![Bastion Details](media/image28.png)
-- **MySQL Server (Private VPC)**  
-  ![MySQL Server](media/image29.png)  
-  ![MySQL Details](media/image30.png)
-
-## Technical Stack
-- **Cloud Provider:** AWS
-- **Core Services:** VPC, EC2, VPC Peering, NAT Gateway, Internet Gateway, Route Tables, Security Groups
-- **Database:** MySQL Server (Community Edition)
-- **Access Method:** SSH Tunneling / Bastion Host
-- **Client Tools:** MySQL Client, OpenSSH
-
-## Network Infrastructure & VPC Peering
-- **Two VPCs:** Created with non-overlapping CIDR blocks.
-- **Subnets:** Each VPC has a public subnet (for bastion/NAT) and a private subnet (for database).
-- **Internet Gateway:** Attached to public subnets for internet access.
-- **NAT Gateway:** Deployed in the public subnet of the private VPC to allow the MySQL instance to download updates/patches.
-- **VPC Peering:** A peering connection links the two VPCs, enabling private IP communication.
-- **Route Tables:** Updated in all relevant subnets to route traffic to the peered VPC’s CIDR block via the peering connection.
+Security Configuration (Defense-in-Depth)
+Security is the core pillar of this architecture. I implemented a multi-layered defense strategy that ensures the database remains invisible to the public internet, even if the management layer is compromised.
 
 ## Security Configuration
-- **Security Groups:**
-  - **Bastion SG:** Allows inbound SSH (port 22) from your trusted IP only.
-  - **MySQL SG:** Allows inbound MySQL (port 3306) **only** from the Bastion Host's private IP or security group.
-- **Network ACLs:** Left at default (allow all) for this lab, but could be further restricted.
-- **Bastion Host:** Acts as a jump box; the MySQL instance has no public IP and is inaccessible directly from the internet.
+**1. Identity-Based Security Group Referencing**
+This is the highlight of the security stack. Rather than using static IP whitelisting (which is brittle and insecure in dynamic cloud environments), I utilized Security Group Nesting.
+
+**Logic**: The MySQL Security Group (Private VPC) is configured to permit inbound traffic on Port 3306 only if the request originates from an instance associated with the Bastion Security Group ID (sg-xxxxxxxx).
+
+Now, This creates a logical "trust boundary." Even if the Bastion Host's private IP changes due to a reboot or scaling event, the database remains accessible to the Bastion—and only the Bastion—without manual intervention.
+
+**2. Zero-Exposure Network Perimeter**
+Public Isolation: The MySQL instance has no Public IP address. It exists solely within a private subnet, making it unreachable via the internet gateway.
+
+The Bastion "Jump" Pattern: The Bastion Host acts as the single, hardened entry point. It is the only resource in the entire architecture that "sees" both the public internet (via SSH) and the private database (via the Peering link).
+
+3. Port Hardening & Protocol Scoping
+I applied a strict Default-Deny posture for all Network ACLs and Security Groups:
+| Resource | Direction | Protocol | Port | Source | Justification |
+|----------|-----------|----------|------|--------|---------------|
+| Bastion | Inbound | SSH | 22 | My_Admin_IP/32 | Prevents credential brute-forcing from unknown IPs. |
+| MySQL | Inbound | TCP | 3306 | sg-Bastion-ID | Restricts DB access to the management tier only. |
+| All | Inbound | All | All | 0.0.0.0/0 | **DENIED** - Standard Zero-Trust posture. |
+
+4. Secure Egress via NAT Gateway
+The database VPC uses a NAT Gateway for outbound traffic. This allows the MySQL server to reach out for security patches (apt upgrade) without allowing the internet to "reach in." This asymmetric connectivity is critical for maintaining a patched, secure system without increasing the attack surface.
 
 ## Database Setup & Remote Access
-1.  **MySQL Installation on Private Server:**
-    - Connected to the private instance via the bastion host.
-    - Updated the system and installed MySQL server.
-    - ![MySQL Install](media/image34.png)  
-      ![MySQL Status](media/image35.png)  
-      ![MySQL Service](media/image36.png)  
-      ![MySQL Secure Installation](media/image37.png)  
-      ![MySQL Running](media/image38.png)
-2.  **Configuration Change:**
-    - Modified the `bind-address` in `/etc/mysql/mysql.conf.d/mysqld.cnf` to `0.0.0.0` to allow remote connections (from the bastion).
-    - ![Change Bind Address](media/image40.png)  
-      ![Restart MySQL](media/image42.png)
-3.  **Access from Bastion Host:**
-    - From the bastion, installed the MySQL client.
-    - Connected to the private MySQL server using its private IP.
-    - ![Bastion MySQL Client Install](media/image43.png)  
-      ![MySQL Connection Command](media/image44.png)  
-      ![MySQL Login Success](media/image45.png)  
-      ![MySQL Show Databases](media/image46.png)
+
+### Configuration Steps
+
+| Step | Action | Details |
+|------|--------|---------|
+| 1 | Automated Patching | `sudo apt update && sudo apt install mysql-server -y` (via NAT Gateway) |
+| 2 | Bind-Address Hardening | Modified `/etc/mysql/mysql.conf.d/mysqld.cnf` to `bind-address = 192.168.0.0` |
+| 3 | Least-Privilege User | `CREATE USER 'admin'@'bastion-private-ip' IDENTIFIED BY 'password';` |
+
+### Why Bind to `192.168.0.0`?
+
+```bash
+# Default (localhost only - no remote access)
+bind-address = 127.0.0.1
+
+# Configured (accepts connections from peered VPC only)
+bind-address = 192.168.0.0  # Private IP range of the peered VPC
+```
+Importance:
+
+Network Segmentation: MySQL listens only on the peered VPC's private IP range, not all interfaces
+
+Defense in Depth: Application-layer filtering complements AWS Security Groups
+
+Lateral Movement Prevention: Even if another instance in the same VPC is compromised, it cannot connect to MySQL unless it resides in the 192.168.0.0 range
+
+Zero Trust Implementation: No single point of failure - both network and application layers enforce access control
+
 
 ## Validation & Connectivity Testing
 - **Ping Test:** Verified network reachability between instances (if ICMP allowed).
